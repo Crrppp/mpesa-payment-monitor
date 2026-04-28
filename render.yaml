@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: mpesa-backend
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: cd backend && gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DB_HOST
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_NAME
+        value: mpesa_system
+      - key: FERNET_KEY
+        sync: false
+      - key: CONSUMER_KEY
+        sync: false
+      - key: CONSUMER_SECRET
+        sync: false
+
+  - type: web
+    name: mpesa-dashboard
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: cd dashboard && streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.enableCORS false --server.enableXsrfProtection false --browser.gatherUsageStats false
+    envVars:
+      - key: API_URL
+        value: https://mpesa-backend.onrender.com/api
