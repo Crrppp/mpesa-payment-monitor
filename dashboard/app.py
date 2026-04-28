@@ -3,11 +3,11 @@ import requests
 import pandas as pd
 from datetime import datetime, timedelta
 import plotly.express as px
-import os
 
-# --- Backend API configuration ---
-# IMPORTANT: Update this to your actual backend URL if the environment variable isn't set.
-API_URL = os.getenv("API_URL", "https://mpesa-payment-monitor.onrender.com/api")
+# ------------------------------------------------------------
+# Your live Render backend API. Hardcoded for reliability.
+# ------------------------------------------------------------
+API_URL = "https://mpesa-payment-monitor.onrender.com/api"
 
 # --- Session State Initialization ---
 if 'authenticated' not in st.session_state:
@@ -31,7 +31,7 @@ st.set_page_config(page_title="M-Pesa Monitor", page_icon="💳", layout="wide")
 
 
 def api_request(method, endpoint, **kwargs):
-    """Persistent session with cookie handling."""
+    """Make API calls with a persistent session (holds cookies)."""
     url = f"{API_URL}{endpoint}"
     try:
         session = st.session_state.requests_session
@@ -41,6 +41,8 @@ def api_request(method, endpoint, **kwargs):
             response = session.post(url, json=kwargs.get('json'))
         else:
             return None
+        # If the server returns 401, the session might be invalid.
+        # We don't clear the session here, but we capture the response.
         return response
     except Exception as e:
         st.error(f"Connection error: {e}")
@@ -66,9 +68,12 @@ def login_page():
                         data = response.json()
                         st.session_state.authenticated = True
                         st.session_state.user = data['user']
+                        # Force a full rerun to render the dashboard
                         st.rerun()
                     elif response:
                         st.error(response.json().get('error', 'Login failed'))
+                    else:
+                        st.error("No response from server.")
 
         with tab2:
             with st.form("signup_form"):
@@ -90,6 +95,8 @@ def login_page():
                             st.rerun()
                         elif response:
                             st.error(response.json().get('error', 'Signup failed'))
+                        else:
+                            st.error("No response from server.")
 
     if st.session_state.signup_success:
         st.session_state.signup_success = False
@@ -240,9 +247,6 @@ def main_dashboard():
 
 
 def main():
-    # Debugging line (remove after confirming fix)
-    # st.write("DEBUG: authenticated =", st.session_state.authenticated, "user =", st.session_state.user)
-
     if not st.session_state.authenticated:
         login_page()
     else:
