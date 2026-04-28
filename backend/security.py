@@ -24,9 +24,3 @@ def hash_password(password: str) -> str:
 
 def verify_password(password: str, hashed: str) -> bool:
     return bcrypt.checkpw(password.encode(), hashed.encode())
-
-
-def mask_phone(phone: str) -> str:
-    if len(phone) >= 10:
-        return phone[:4] + "****" + phone[-3:]
-    return "****"

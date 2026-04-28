@@ -1,8 +1,8 @@
-CREATE DATABASE IF NOT EXISTS mpesa_system;
-USE mpesa_system;
+-- PostgreSQL schema for M-Pesa Payment Monitor
+-- The backend will automatically create these tables if they don't exist.
 
 CREATE TABLE IF NOT EXISTS users (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     email VARCHAR(100) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     full_name VARCHAR(100),
@@ -10,27 +10,26 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS businesses (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     business_name VARCHAR(100) NOT NULL,
     shortcode VARCHAR(20) NOT NULL,
-    shortcode_type ENUM('paybill', 'till') DEFAULT 'till',
+    shortcode_type VARCHAR(10) DEFAULT 'till' CHECK (shortcode_type IN ('till', 'paybill')),
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    UNIQUE KEY unique_shortcode_per_user (user_id, shortcode)
+    UNIQUE (user_id, shortcode)
 );
 
 CREATE TABLE IF NOT EXISTS payments (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    business_id INT NOT NULL,
+    id SERIAL PRIMARY KEY,
+    business_id INT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
     phone_encrypted TEXT NOT NULL,
     phone_hash VARCHAR(64) NOT NULL,
     amount DECIMAL(10,2) NOT NULL,
     mpesa_code VARCHAR(50) UNIQUE NOT NULL,
-    transaction_time DATETIME NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE,
-    INDEX idx_phone_hash (phone_hash),
-    INDEX idx_business_time (business_id, transaction_time)
+    transaction_time TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX IF NOT EXISTS idx_phone_hash ON payments(phone_hash);
+CREATE INDEX IF NOT EXISTS idx_business_time ON payments(business_id, transaction_time);

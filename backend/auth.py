@@ -1,9 +1,9 @@
 from flask import request, jsonify, session
 from functools import wraps
-from db import get_db
+from db import get_db, return_db
 from security import hash_password, verify_password
 import re
-import mysql.connector
+import psycopg2.errors
 
 
 def validate_email(email):
@@ -33,21 +33,27 @@ def signup_user(email, password, full_name):
         user_id = cursor.lastrowid
         return {"success": True, "user_id": user_id, "message": "Account created"}, 201
     except Exception as e:
+        conn.rollback()
         return {"error": str(e)}, 500
     finally:
-        conn.close()
+        cursor.close()
+        return_db(conn)
 
 
 def login_user(email, password):
     conn = get_db()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
     try:
         cursor.execute(
             "SELECT id, email, password_hash, full_name FROM users WHERE email = %s",
             (email,)
         )
-        user = cursor.fetchone()
-        if not user or not verify_password(password, user['password_hash']):
+        row = cursor.fetchone()
+        if not row:
+            return {"error": "Invalid email or password"}, 401
+
+        user = {"id": row[0], "email": row[1], "password_hash": row[2], "full_name": row[3]}
+        if not verify_password(password, user['password_hash']):
             return {"error": "Invalid email or password"}, 401
 
         session['user_id'] = user['id']
@@ -64,7 +70,8 @@ def login_user(email, password):
     except Exception as e:
         return {"error": str(e)}, 500
     finally:
-        conn.close()
+        cursor.close()
+        return_db(conn)
 
 
 def logout_user():
@@ -76,17 +83,21 @@ def get_current_user():
     if 'user_id' not in session:
         return None
     conn = get_db()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
     try:
         cursor.execute(
             "SELECT id, email, full_name FROM users WHERE id = %s",
             (session['user_id'],)
         )
-        return cursor.fetchone()
+        row = cursor.fetchone()
+        if row:
+            return {"id": row[0], "email": row[1], "full_name": row[2]}
+        return None
     except:
         return None
     finally:
-        conn.close()
+        cursor.close()
+        return_db(conn)
 
 
 def login_required(f):
@@ -108,22 +119,37 @@ def add_business(user_id, business_name, shortcode, shortcode_type):
         """, (user_id, business_name, shortcode, shortcode_type))
         conn.commit()
         return {"success": True, "business_id": cursor.lastrowid, "message": "Business added"}, 201
-    except mysql.connector.IntegrityError:
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
         return {"error": "Shortcode already registered for this account"}, 409
     except Exception as e:
+        conn.rollback()
         return {"error": str(e)}, 500
     finally:
-        conn.close()
+        cursor.close()
+        return_db(conn)
 
 
 def get_user_businesses(user_id):
     conn = get_db()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
     try:
         cursor.execute("""
             SELECT id, business_name, shortcode, shortcode_type, is_active, created_at
             FROM businesses WHERE user_id = %s ORDER BY created_at DESC
         """, (user_id,))
-        return cursor.fetchall()
+        rows = cursor.fetchall()
+        businesses = []
+        for row in rows:
+            businesses.append({
+                "id": row[0],
+                "business_name": row[1],
+                "shortcode": row[2],
+                "shortcode_type": row[3],
+                "is_active": row[4],
+                "created_at": row[5].isoformat()
+            })
+        return businesses
     finally:
-        conn.close()
+        cursor.close()
+        return_db(conn)

@@ -1,14 +1,14 @@
 from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 from datetime import datetime
-import mysql.connector
+import psycopg2.errors
 import os
 import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Config
-from db import get_db, test_connection
+from db import get_db, return_db, test_connection
 from security import encrypt_phone, decrypt_phone, hash_phone
 from auth import (
     signup_user, login_user, logout_user,
@@ -18,7 +18,6 @@ from auth import (
 
 app = Flask(__name__)
 app.secret_key = Config.SECRET_KEY
-
 app.config['SESSION_COOKIE_SAMESITE'] = 'None'
 app.config['SESSION_COOKIE_SECURE'] = False
 
@@ -32,6 +31,28 @@ CORS(app,
      supports_credentials=True,
      allow_headers=["Content-Type", "Authorization"],
      methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+
+
+def init_db():
+    """Create tables if they don't exist (idempotent)."""
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        schema_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "database", "schema.sql"
+        )
+        with open(schema_path, 'r') as f:
+            schema_sql = f.read()
+        cursor.execute(schema_sql)
+        conn.commit()
+        print("✅ Database tables verified/created.")
+    except Exception as e:
+        print(f"⚠️ Schema init error (may already exist): {e}")
+        conn.rollback()
+    finally:
+        cursor.close()
+        return_db(conn)
 
 
 @app.route("/api/signup", methods=["POST", "OPTIONS"])
@@ -100,7 +121,7 @@ def get_payments():
     search = request.args.get("search", "")
 
     conn = get_db()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
 
     query = """
         SELECT p.id, p.business_id, p.phone_encrypted, p.amount,
@@ -124,17 +145,29 @@ def get_payments():
     query += " ORDER BY p.transaction_time DESC LIMIT 500"
 
     cursor.execute(query, params)
-    payments = cursor.fetchall()
-
-    for p in payments:
+    rows = cursor.fetchall()
+    payments = []
+    for row in rows:
+        p = {
+            "id": row[0],
+            "business_id": row[1],
+            "phone_encrypted": row[2],
+            "amount": float(row[3]),
+            "mpesa_code": row[4],
+            "transaction_time": row[5].isoformat(),
+            "created_at": row[6].isoformat(),
+            "business_name": row[7]
+        }
         try:
             full_phone = decrypt_phone(p['phone_encrypted'])
             p['phone_masked'] = f"{full_phone[:4]}****{full_phone[-3:]}" if len(full_phone) >= 10 else "****"
         except:
             p['phone_masked'] = "****"
         del p['phone_encrypted']
+        payments.append(p)
 
-    conn.close()
+    cursor.close()
+    return_db(conn)
     return jsonify(payments), 200
 
 
@@ -145,7 +178,7 @@ def get_stats():
     business_id = request.args.get("business_id")
 
     conn = get_db()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
 
     query = """
         SELECT
@@ -165,20 +198,24 @@ def get_stats():
     query += " GROUP BY DATE(transaction_time) ORDER BY date DESC LIMIT 30"
 
     cursor.execute(query, params)
-    stats = cursor.fetchall()
-    conn.close()
+    rows = cursor.fetchall()
+    stats = [{"total_transactions": r[0], "total_amount": float(r[1]), "date": str(r[2])} for r in rows]
+    cursor.close()
+    return_db(conn)
     return jsonify(stats), 200
 
 
 def get_business_by_shortcode(shortcode):
     conn = get_db()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
     cursor.execute(
         "SELECT id, user_id, business_name FROM businesses WHERE shortcode = %s AND is_active = TRUE",
         (shortcode,)
     )
-    business = cursor.fetchone()
-    conn.close()
+    row = cursor.fetchone()
+    business = {"id": row[0], "user_id": row[1], "business_name": row[2]} if row else None
+    cursor.close()
+    return_db(conn)
     return business
 
 
@@ -220,12 +257,15 @@ def mpesa_confirmation():
         conn.commit()
         print(f"✅ Payment saved: {business['business_name']} - KES {amount}")
 
-    except mysql.connector.IntegrityError:
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
         print(f"⚠️ Duplicate transaction: {code}")
     except Exception as e:
+        conn.rollback()
         print(f"❌ Error: {e}")
     finally:
-        conn.close()
+        cursor.close()
+        return_db(conn)
 
     return jsonify({"ResultCode": 0, "ResultDesc": "Accepted"}), 200
 
@@ -247,7 +287,11 @@ def health():
 
 if __name__ == "__main__":
     print("🚀 Starting M-Pesa Payment Monitor Backend...")
-    print(f"📍 Database: {Config.DB_HOST}/{Config.DB_NAME}")
+    print(f"📍 Database: {Config.DB_HOST}:{Config.DB_PORT}/{Config.DB_NAME}")
+
+    # Auto-create tables on startup
+    init_db()
+
     db_ok, db_msg = test_connection()
     if db_ok:
         print(f"✅ Database connected: {db_msg}")
