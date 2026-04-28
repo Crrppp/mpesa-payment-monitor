@@ -5,8 +5,7 @@ from datetime import datetime, timedelta
 import plotly.express as px
 
 import os
-API_URL = os.getenv("API_URL", "http://localhost:5000/api")
-
+API_URL = "https://mpesa-payment-monitor.onrender.com/api"
 # For the Render environment, the API_URL will be read from the environment variable.
 # For local development, it will fall back to http://localhost:5000/api.
 
