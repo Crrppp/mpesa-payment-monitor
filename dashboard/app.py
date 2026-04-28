@@ -3,11 +3,11 @@ import requests
 import pandas as pd
 from datetime import datetime, timedelta
 import plotly.express as px
-
 import os
-API_URL = "https://mpesa-payment-monitor.onrender.com/api"
-# For the Render environment, the API_URL will be read from the environment variable.
-# For local development, it will fall back to http://localhost:5000/api.
+
+# --- Backend API configuration ---
+# IMPORTANT: Update this to your actual backend URL if the environment variable isn't set.
+API_URL = os.getenv("API_URL", "https://mpesa-payment-monitor.onrender.com/api")
 
 # --- Session State Initialization ---
 if 'authenticated' not in st.session_state:
@@ -97,7 +97,6 @@ def login_page():
 
 
 def onboarding_page():
-    # Cancel button to go back to dashboard
     if st.session_state.get('show_add_business') and st.session_state.businesses:
         if st.button("← Back to Dashboard"):
             st.session_state.show_add_business = False
@@ -108,7 +107,6 @@ def onboarding_page():
         st.markdown(f"## 👋 Welcome, {st.session_state.user.get('full_name', 'User')}!")
         st.markdown("### Add Your First Business" if not st.session_state.businesses else "### Add Another Business")
 
-        # Dynamic form key ensures a fresh form every time
         form_key = f"add_business_form_{st.session_state.add_biz_counter}"
         with st.form(key=form_key):
             business_name = st.text_input("Business Name", placeholder="e.g., My Supermarket")
@@ -172,7 +170,6 @@ def main_dashboard():
             st.session_state.user = None
             st.rerun()
 
-    # Decide which page to show
     if st.session_state.get('show_add_business') or not st.session_state.businesses:
         onboarding_page()
     elif st.session_state.selected_business:
@@ -243,6 +240,9 @@ def main_dashboard():
 
 
 def main():
+    # Debugging line (remove after confirming fix)
+    # st.write("DEBUG: authenticated =", st.session_state.authenticated, "user =", st.session_state.user)
+
     if not st.session_state.authenticated:
         login_page()
     else:
